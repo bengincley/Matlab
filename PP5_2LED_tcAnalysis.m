@@ -57,6 +57,7 @@ for iexp = a:aa
     nROI = size(area_list,1);
     col_mat = char('k', 'b');
     fn_base = fullfile(anal_root, [date '_' mouse]);
+    fn_outbase = fullfile(anal_root, 'PP5');
     fn_output_home = fullfile(output_root, [date '_' mouse '_' areas]);
     fn_output = fullfile(fn_output_home, [date '_' mouse '_' expt_name '_' areas]);
     fn_img = fullfile(fn_base, [date '_' mouse '_' expt_name '_' areas '_imageData.mat']);
@@ -64,6 +65,7 @@ for iexp = a:aa
     fn_tc = fullfile(fn_base, [date '_' mouse '_' expt_name '_' areas '_exptData.mat']);
     fn_mask = fullfile(fn_base, [date '_' mouse '_' expt_name '_' areas '_maskData.mat']);
     fn_pulse = fullfile(fn_base, [date '_' mouse '_' expt_name '_' areas '_pulseData.mat']);
+    fn_final = fullfile(fn_outbase, [date '_' mouse '_' expt_name '_' areas '_final.mat']);
     fn_img1 = fullfile(data_root, [date '_' mouse], [date '_' mouse '_' expt_name '_' num2str(xObj) '_1']);
     cd(fn_base)
     if exist(fullfile(fn_base, [date '_' mouse '_' expt_name '_' num2str(xObj) '_maskData.mat']),'file')
@@ -93,15 +95,16 @@ for iexp = a:aa
     end
 %% Check if ROIs have been selected previously, allow jump straight to figures.
     if exist(fn_tc,'file') && exist(fn_mask,'file')
+        disp('Loading files...')
         load(fn_tc)
         load(fn_mask)
         load(fn_mworks)
         disp('Previously saved ROI and experiment data files found, skipping to figures.')
     else
-        if exist(fn_img,'file')
-            disp('Previously assessed dF/F image data found. Loading file...')
-            load(fn_img)
-        else
+%         if exist(fn_img,'file')
+%             disp('Previously assessed dF/F image data found. Loading file...')
+%             load(fn_img)
+%         else
             disp('Initiating new interpolation process.')
             disp('Reading image files...')
             data =[];
@@ -151,7 +154,7 @@ for iexp = a:aa
             disp('Saving Interpolated Data...')
             clear data bdata gdata
             %save(fn_int, 'tframes', 'bframes', 'gframes', 'bdata_int', 'gdata_int', 'input', 'cLeverDown', 'holdTimes', 'cTargetOn', 'sz', 'stimOff', 'ntrials', '-v7.3');
-        end
+%         end
             preframes = 15;
             postframes = 45;           
             postframes_p3 = 65;
@@ -227,121 +230,150 @@ for iexp = a:aa
         preframes = 15;
         postframes = 45;
         offs = unique(stimOff);
-        test_tc_sub_off = cell(1,length(offs));
-        base_tc_sub_off = cell(1,length(offs));
+        test_tc_sub_off = cell(length(offs),2);
+        base_tc_sub_off = cell(length(offs),2);
         resp_win = 23:26;
-        base_win = 17:20;
-        
-        pulse_tc_p1 = base_tc_sub(:,stimOff==4000,:);
+        base_win = 1:20;
+        residual_dFoverF = 0.005;
+        clear pulse_tc_p1
+        for ia = 1:size(area_list,1)
+            pulse_tc_p1(:,:,ia) = base_tc_sub(:,stimOff==4000,ia);
 %         pulse_tc_p2 = ones(60,length(stimOff==4000));
 %         pulse_tc_p3 = ones(80,length(stimOff==4000));
-
+        end
+        % Find max avg dF/F for base pulse
+        for ia = 1:size(area_list,1)
+            [max_p1(ia) f(ia)] = max(nanmean(base_tc_sub(20:30,:,ia),2));
+            avg_peak(ia) = nanmean(nanmean(base_tc_sub(20+f-1:20+f+1,:,ia),2));
+        end
+        
         for ia = 1:size(area_list,1)
             for io = 1:length(offs)
-                ind1 = find(stimOff == offs(io));
-                test_tc_sub_off{io} = nanmean(test_tc_sub(resp_win,ind1,:),1)-nanmean(test_tc_sub(base_win,ind1,:),1);
-                base_tc_sub_off{io} = nanmean(base_tc_sub(resp_win,ind1,:),1)-nanmean(base_tc_sub(base_win,ind1,:),1);
+                ind1 = find(stimOff == offs(io)); % Re-zeros TCs
+                test_tc_sub_off{io,ia} = nanmean(test_tc_sub(resp_win,ind1,ia),1)-nanmean(test_tc_sub(base_win,ind1,ia),1);
+                base_tc_sub_off{io,ia} = nanmean(base_tc_sub(resp_win,ind1,ia),1)-nanmean(base_tc_sub(base_win,ind1,ia),1);
+                if io>=4
+                    h(1,io-3,ia) = nanmean(nanmean(base_tc_sub(base_win,ind1,ia),1));
+                    h(2,io-3,ia) = nanmean(nanmean(test_tc_sub(base_win,ind1,ia),1));
+                    [h(1,io-1,ia), h(1,io+1,ia)] = ttest(nanmean(base_tc_sub(base_win,ind1,ia),1),0);
+                    [h(2,io-1,ia), h(2,io+1,ia)] = ttest(nanmean(test_tc_sub(base_win,ind1,ia),1),0);
+                    [h(3,io-1,ia), h(3,io+1,ia)] = ttest2(nanmean(base_tc_sub(base_win,ind1,ia),1),nanmean(test_tc_sub(base_win,ind1,ia),1));
+                end
             end
+            
+                  
+            % Pulse Fit
+            ind = find(stimOff == 4000);
+            baseline_mean(ia) = nanmean(nanmean(pulse_tc_p1(1:preframes,:,ia)));
+            mean_tc_p1(:,ia) = nanmean(pulse_tc_p1(:,:,ia),2) - baseline_mean(ia);
+    %         mean_tc_p2 = nanmean(pulse_tc_p2,2) - baseline_mean;
+    %         mean_tc_p3 = nanmean(pulse_tc_p3,2) - baseline_mean;
+
+            shift{1}(60,2) = 0;
+    %         shift{2}(60,2) = 0;
+    %         shift{3}(80,2) = 0;
         
-        % Pulse Fit
-        ind = find(stimOff == 4000);
-        baseline_mean(ia) = nanmean(nanmean(pulse_tc_p1(1:preframes,:,ia)));
-        mean_tc_p1(:,ia) = nanmean(pulse_tc_p1(:,:,ia),2) - baseline_mean(ia);
-%         mean_tc_p2 = nanmean(pulse_tc_p2,2) - baseline_mean;
-%         mean_tc_p3 = nanmean(pulse_tc_p3,2) - baseline_mean;
-        
-        shift{1}(60,2) = 0;
-%         shift{2}(60,2) = 0;
-%         shift{3}(80,2) = 0;
-        
-        for n = 1:2
-            shift{1}(:,n,ia) = circshift(mean_tc_p1(:,ia),11*(n-1));
-%             shift{2}(:,n) = circshift(mean_tc_p2,18*(n-1));
-%             shift{3}(:,n) = circshift(mean_tc_p3,33*(n-1));
-            if n == 2
-                shift{1}(1:(11*(n-1)),n,ia) = 0;
-%                 shift{2}(1:(18*(n-1)),n) = 0;
-%                 shift{3}(1:(33*(n-1)),n) = 0;
+            for n = 1:2
+                shift{1}(:,n,ia) = circshift(mean_tc_p1(:,ia),11*(n-1));
+    %             shift{2}(:,n) = circshift(mean_tc_p2,18*(n-1));
+    %             shift{3}(:,n) = circshift(mean_tc_p3,33*(n-1));
+                if n == 2
+                    shift{1}(1:(11*(n-1)),n,ia) = 0;
+    %                 shift{2}(1:(18*(n-1)),n) = 0;
+    %                 shift{3}(1:(33*(n-1)),n) = 0;
+                end
+            end
+            clear offs_m pp_base_tc
+            for m = 1:3
+                j = (30+(m-1)*10):(30+(m*10));
+                    offs_m{m}(:,ia) = find(stimOff == 250*(2^(m-1)));
+                    pp_base_tc{m}(:,:,ia) = base_tc_sub(:,offs_m{m}(:,ia),ia);
+                    mean_pp_base_tc{m}(:,:,ia) = nanmean(pp_base_tc{m}(:,:,ia),2);
+                    pp_to_fit{m}(:,:,ia) = mean_pp_base_tc{m}(1:60,:,ia);
+    %                 norm_pp_to_fit{m}(:,:,ia) = pp_to_fit{m}(:,:,ia) / max(pp_to_fit{m}(15:30,:,ia));
+    %                 norm_shift{m}(:,ia) = shift{1}(:,1,ia) / max(shift{1}(:,1,ia));
+                    norm_pp_to_fit{m}(:,:,ia) = pp_to_fit{m}(:,:,ia);
+                    norm_shift{m}(:,ia) = max(pp_to_fit{m}(15:30,:,ia))*shift{1}(:,1,ia) / max(shift{1}(:,1,ia));
+    %             if m==3
+    %                 betas{m} = shift{m}(1:60,:)\pp_to_fit{m};
+    %             else
+    %                 betas{m} = shift{m}(1:60,:)\pp_to_fit{m};
+    %             end
+                    residual{m}(:,ia) = norm_pp_to_fit{m}(:,:,ia) - norm_shift{m}(1:60,ia);
+    %                 betas_norm{m} = betas{m}(:) ./ betas{m}(1,1);
+                    betas_residual{m}(:,ia) = max(residual{m}(j,ia)) / max_p1(ia);
+    %             for n=1:2
+    %                 beta_shift{m}(:,n) = betas{m}(n) * shift{m}(:,n);
+    %             end
+    %                 sum_pulses{m} = sum(beta_shift{m},2);
+    %                 betas_v(m) = betas_norm{m}(2);
+                    betas_res(m,ia) = betas_residual{m}(:,ia);
             end
         end
-        clear offs_m pp_base_tc
-        for m = 1:3
-            j = (30+(m-1)*10):(30+(m*10));
-                offs_m{m}(:,ia) = find(stimOff == 250*(2^(m-1)));
-                pp_base_tc{m}(:,:,ia) = base_tc_sub(:,offs_m{m}(:,ia),ia);
-                mean_pp_base_tc{m}(:,:,ia) = nanmean(pp_base_tc{m}(:,:,ia),2);
-                pp_to_fit{m}(:,:,ia) = mean_pp_base_tc{m}(1:60,:,ia);
-                norm_pp_to_fit{m}(:,:,ia) = pp_to_fit{m}(:,:,ia) / max(pp_to_fit{m}(15:30,:,ia));
-                norm_shift{m}(:,ia) = shift{1}(:,1,ia) / max(shift{1}(:,1,ia));
-%             if m==3
-%                 betas{m} = shift{m}(1:60,:)\pp_to_fit{m};
-%             else
-%                 betas{m} = shift{m}(1:60,:)\pp_to_fit{m};
-%             end
-                residual{m}(:,ia) = norm_pp_to_fit{m}(:,:,ia) - norm_shift{m}(1:60,ia);
-%                 betas_norm{m} = betas{m}(:) ./ betas{m}(1,1);
-                betas_residual{m}(:,ia) = max(residual{m}(j,ia));
-%             for n=1:2
-%                 beta_shift{m}(:,n) = betas{m}(n) * shift{m}(:,n);
-%             end
-%                 sum_pulses{m} = sum(beta_shift{m},2);
-%                 betas_v(m) = betas_norm{m}(2);
-                betas_res(m,ia) = betas_residual{m}(:,ia);
+        clear norm_recov norm
+    % Old way of calculating Recovery
+        for ia = 1:size(area_list,1)
+            for io = 1:length(offs)
+                norm{io,ia} = bsxfun(@rdivide, nanmean(test_tc_sub_off{io,ia}), avg_peak(ia));
+                norm_recov(io,ia) = norm{io,ia};
+            end
         end
-        end
+
+        
+    disp('Saving Data...')
     if exist(fn_tc,'file')
-        save(fn_tc, 'preframes', 'postframes', '-append')
     else 
-        save(fn_tc, 'input', 'preframes', 'postframes', 'base_tc_sub', 'test_tc_sub', 'test_tc_sub_off', 'base_tc_sub_off', 'offs', 'stimOff', 'base_win', 'resp_win')
+        save(fn_tc, 'input', 'norm_recov', 'preframes', 'postframes', 'base_tc_sub', 'test_tc_sub', 'test_tc_sub_off', 'base_tc_sub_off', 'offs', 'stimOff', 'base_win', 'resp_win')
     end
     if exist(fn_pulse,'file')
-        save(fn_pulse, 'shift', 'betas_residual', 'residual', '-append')
     else
         save(fn_pulse, 'pulse_tc_p1', 'shift', 'pp_to_fit', 'betas_residual', 'residual', 'norm_pp_to_fit', 'norm_shift', 'stimOff')
     end
+    save(fn_final, 'h', 'max_p1', 'stimOff', 'offs', 'norm_recov', 'betas_residual')
+
     disp('Data saved in the proper directory for this mouse.')
-%% Plots 
-    disp('Plotting Figures...')
-    % Establish maximum luminance response to base stimulus
-    base_all = zeros(1,length(offs));
-    for ia = 1:size(area_list,1)
-        for io = 1:length(offs)
-            temp = base_tc_sub_off{io};
-            base_all(io,ia) = squeeze(nanmean(temp(:,:,ia),2)).*1.25;
-        end
-    end
-    base_max = max(base_all,[],1);
-    % Overlay of Base/Test Pulse Responses
-    for ia = 1:size(area_list,1)
-        f = figure; set(f, 'Position', [270 195 1500 1150]);
-        for io = 1:length(offs)
-            ind1 = find(stimOff == offs(io));
-            subplot(2,3,io)
-            shadedErrorBar(1:size(base_tc_sub,1), nanmean(base_tc_sub(:,ind1,ia),2), nanstd(base_tc_sub(:,ind1,ia),[],2)./sqrt(sum(~isnan(squeeze(base_tc_sub(1,ind1,1))),2)),'-k');
-            hold on
-            shadedErrorBar(1:size(test_tc_sub,1), nanmean(test_tc_sub(:,ind1,ia),2)-nanmean(nanmean(test_tc_sub(base_win,ind1,ia),2),1), nanstd(test_tc_sub(:,ind1,1),[],2)./sqrt(sum(~isnan(squeeze(test_tc_sub(1,ind1,1))),2)),'-r');
-            title(num2str(offs(io)))
-            ylim([-0.02 1.75*base_max(:,ia)])
-        end
-        suptitle([mouse ' ' date '- Area ' area_list(ia,:) '- Paired pulse TCs']) 
-        savefig(fullfile(fn_output, [date '_' mouse '_' expt_name '_' area_list(ia,:) '_timecourse.fig']));  
-        print(fullfile(fn_output, [date '_' mouse '_' expt_name '_' area_list(ia,:) '_timecourse.png']), '-dpng');
-    end
-    % Change in Response for Each ISI
-    for ia = 1:size(area_list,1)
-        f = figure; set(f, 'Position', [270 195 1500 1150]);
-        for io = 1:length(offs)
-            norm = bsxfun(@rdivide, test_tc_sub_off{io}, nanmean(base_tc_sub_off{io},2));
-            errorbar(offs(io), nanmean(norm(:,:,ia),2), nanstd(norm(:,:,ia),[],2)./sqrt(size(norm,2)), 'ok')
-            hold on
-        end
-        ylim([0 1.25])
-        xlabel('Time (msec)')
-        ylabel('Normalized amplitude')
-        suptitle([mouse ' ' date '- Area ' area_list(ia,:) '- PP recovery']) 
-        savefig(fullfile(fn_output, [date '_' mouse '_' expt_name '_' area_list(ia,:) '_change_resp.fig']));
-        print(fullfile(fn_output, [date '_' mouse '_' expt_name '_' area_list(ia,:) '_change_resp.png']), '-dpng');
-    end
+% %% Plots 
+%     disp('Plotting Figures...')
+%     % Establish maximum luminance response to base stimulus
+%     base_all = zeros(1,length(offs));
+%     for ia = 1:size(area_list,1)
+%         for io = 1:length(offs)
+%             temp = base_tc_sub_off{io};
+%             base_all(io,ia) = squeeze(nanmean(temp(:,:,ia),2)).*1.25;
+%         end
+%     end
+%     base_max = max(base_all,[],1);
+%     % Overlay of Base/Test Pulse Responses
+%     for ia = 1:size(area_list,1)
+%         f = figure; set(f, 'Position', [270 195 1500 1150]);
+%         for io = 1:length(offs)
+%             ind1 = find(stimOff == offs(io));
+%             subplot(2,3,io)
+%             shadedErrorBar(1:size(base_tc_sub,1), nanmean(base_tc_sub(:,ind1,ia),2), nanstd(base_tc_sub(:,ind1,ia),[],2)./sqrt(sum(~isnan(squeeze(base_tc_sub(1,ind1,1))),2)),'-k');
+%             hold on
+%             shadedErrorBar(1:size(test_tc_sub,1), nanmean(test_tc_sub(:,ind1,ia),2)-nanmean(nanmean(test_tc_sub(base_win,ind1,ia),2),1), nanstd(test_tc_sub(:,ind1,1),[],2)./sqrt(sum(~isnan(squeeze(test_tc_sub(1,ind1,1))),2)),'-r');
+%             title(num2str(offs(io)))
+%             ylim([-0.02 1.75*base_max(:,ia)])
+%         end
+%         suptitle([mouse ' ' date '- Area ' area_list(ia,:) '- Paired pulse TCs']) 
+%         savefig(fullfile(fn_output, [date '_' mouse '_' expt_name '_' area_list(ia,:) '_timecourse.fig']));  
+%         print(fullfile(fn_output, [date '_' mouse '_' expt_name '_' area_list(ia,:) '_timecourse.png']), '-dpng');
+%     end
+%     % Change in Response for Each ISI
+%     for ia = 1:size(area_list,1)
+%         f = figure; set(f, 'Position', [270 195 1500 1150]);
+%         for io = 1:length(offs)
+%             norm = bsxfun(@rdivide, test_tc_sub_off{io,ia}, nanmean(base_tc_sub_off{io,ia},2));
+%             errorbar(offs(io), nanmean(norm(:,:,ia),2), nanstd(norm(:,:,ia),[],2)./sqrt(size(norm,2)), 'ok')
+%             hold on
+%         end
+%         ylim([0 1.25])
+%         xlabel('Time (msec)')
+%         ylabel('Normalized amplitude')
+%         suptitle([mouse ' ' date '- Area ' area_list(ia,:) '- PP recovery']) 
+%         savefig(fullfile(fn_output, [date '_' mouse '_' expt_name '_' area_list(ia,:) '_change_resp.fig']));
+%         print(fullfile(fn_output, [date '_' mouse '_' expt_name '_' area_list(ia,:) '_change_resp.png']), '-dpng');
+%     end
     % Pulse Fits
 %     for ia = 1:size(area_list,1)
 %         for m=1:3
@@ -363,39 +395,39 @@ for iexp = a:aa
 %         print(fullfile(fn_output, [date '_' mouse '_' expt_name '_' areas '_pulse_fit.png']), '-dpng');
 %         end
 %     end
-    for ia = 1:size(area_list,1)
-        for m=1:3
-            figure;
-            hold on; 
-            plot(norm_pp_to_fit{m}(:,:,ia),'LineWidth',2,'Color','k');
-            plot(norm_shift{m}(:,ia),'LineStyle','--')
-            plot(residual{m}(:,ia),'LineWidth',2,'Color','r');
-            xlim([1 60]);
-            plot([1 60],[0 0], '--k')
-            xlabel('Frames')
-            ylabel('Normalized dF/F')
-            title([mouse ' - ' date ' - Area ' area_list(ia,:) ' - Pulse Fit']);
-            hold off;
-        savefig(fullfile(fn_output, [date '_' mouse '_' expt_name '_' area_list(ia,:) '_pulse_norm.fig']));  
-        print(fullfile(fn_output, [date '_' mouse '_' expt_name '_' area_list(ia,:) '_pulse_norm.png']), '-dpng');
-        end
-    end
-    % Betas for Pulse Fits
-    for ia = 1:size(area_list,1)
-    figure;
-        hold on;
-        bar(betas_res(:,ia))
-        %bar([betas_v; betas_res]', 'grouped');
-        ylim([0 1]);
-        set(gca,'XTick',1:6)
-        set(gca,'XTickLabel', {'250ms', '500ms', '1000ms'})
-        xlabel('Pulse Interval');
-        ylabel('Percent Recovery');
-        title([mouse ' - ' date ' - Area ' area_list(ia,:) ' - Pulse Recovery Beta Values']);
-        hold off
-        savefig(fullfile(fn_output, [date '_' mouse '_' expt_name '_' area_list(ia,:) '_betas.fig']));  
-        print(fullfile(fn_output, [date '_' mouse '_' expt_name '_' area_list(ia,:) '_betas.png']), '-dpng');
-    end
+%     for ia = 1:size(area_list,1)
+%         for m=1:3
+%             figure;
+%             hold on; 
+%             plot(norm_pp_to_fit{m}(:,:,ia),'LineWidth',2,'Color','k');
+%             plot(norm_shift{m}(:,ia),'LineStyle','--')
+%             plot(residual{m}(:,ia),'LineWidth',2,'Color','r');
+%             xlim([1 60]);
+%             plot([1 60],[0 0], '--k')
+%             xlabel('Frames')
+%             ylabel('Normalized dF/F')
+%             title([mouse ' - ' date ' - Area ' area_list(ia,:) ' - ' num2str(offs(m)) ' - Pulse Fit']);
+%             hold off;
+%         savefig(fullfile(fn_output, [date '_' mouse '_' expt_name '_' area_list(ia,:) ' - ' num2str(offs(m)) '_pulse_norm.fig']));  
+%         print(fullfile(fn_output, [date '_' mouse '_' expt_name '_' area_list(ia,:) ' - ' num2str(offs(m)) '_pulse_norm.png']), '-dpng');
+%         end
+%     end
+%     % Betas for Pulse Fits
+%     for ia = 1:size(area_list,1)
+%     figure;
+%         hold on;
+%         bar(betas_res(:,ia))
+%         %bar([betas_v; betas_res]', 'grouped');
+%         ylim([0 1]);
+%         set(gca,'XTick',1:6)
+%         set(gca,'XTickLabel', {'250ms', '500ms', '1000ms'})
+%         xlabel('Pulse Interval');
+%         ylabel('Percent Recovery');
+%         title([mouse ' - ' date ' - Area ' area_list(ia,:) ' - Pulse Recovery Beta Values']);
+%         hold off
+%         savefig(fullfile(fn_output, [date '_' mouse '_' expt_name '_' area_list(ia,:) '_betas.fig']));  
+%         print(fullfile(fn_output, [date '_' mouse '_' expt_name '_' area_list(ia,:) '_betas.png']), '-dpng');
+%     end
     disp('Figures saved in the proper directory for this mouse.')
     
 end

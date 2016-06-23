@@ -83,19 +83,21 @@ for iexp = a:aa
     col_mat = char('k', 'b');
 if xObj == 16
     fn_base = fullfile(anal_root, [date '_' mouse]);
+    fn_outbase = fullfile(anal_root, 'FS5');
     fn_output_home = fullfile(output_root, [date '_' mouse '_' areas]);
     fn_output = fullfile(fn_output_home, [date '_' mouse '_' expt_name '_' areas]);
     fn_img = fullfile(fn_base, [date '_' mouse '_' expt_name '_' areas '_imageData.mat']);
     fn_mworks = fullfile('\\CRASH.dhe.duke.edu\data\home\andrew\Behavior\Data', ['data-' mouse '-' date '-' time_mat '.mat']);
     fn_tc = fullfile(fn_base, [date '_' mouse '_' expt_name '_' areas '_exptData.mat']);
     fn_mask = fullfile(fn_base, [date '_' mouse '_' expt_name '_' areas '_maskData.mat']);
+    fn_final = fullfile(fn_outbase, [date '_' mouse '_' expt_name '_' areas '_final.mat']);
     fn_img1 = fullfile(data_root, [date '_' mouse], [date '_' mouse '_' expt_name '_' num2str(xObj) '_1']);
-   cd(fn_base)
-    if exist(fullfile(fn_base, [date '_' mouse '_' expt_name '_' num2str(xObj) '_maskData.mat']),'file')
-        movefile([date '_' mouse '_' expt_name '_' num2str(xObj) '_maskData.mat'],[date '_' mouse '_' expt_name '_' areas '_maskData.mat']);
-        movefile([date '_' mouse '_' expt_name '_' num2str(xObj) '_exptData.mat'],[date '_' mouse '_' expt_name '_' areas '_exptData.mat']);
-    end
-    cd(anal_root)
+%     cd(fn_base)
+%     if exist(fullfile(fn_base, [date '_' mouse '_' expt_name '_' num2str(xObj) '_maskData.mat']),'file')
+%         movefile([date '_' mouse '_' expt_name '_' num2str(xObj) '_maskData.mat'],[date '_' mouse '_' expt_name '_' areas '_maskData.mat']);
+%         movefile([date '_' mouse '_' expt_name '_' num2str(xObj) '_exptData.mat'],[date '_' mouse '_' expt_name '_' areas '_exptData.mat']);
+%     end
+%     cd(anal_root)
 %% Check if Proper Directories Exist for Mouse and Experiment
     disp('Checking for previously saved files...')
     if isdir(fn_base)
@@ -223,20 +225,22 @@ if xObj == 16
     end
         gratingDirectionDeg = cell2mat(input.gratingDirectionDeg);
         dirs = unique(gratingDirectionDeg);
+        stimOff  = cell2mat(input.tStimOffTimeMs);
         offs = unique(stimOff);
         tc_sub_dir = cell(length(offs),length(dirs),6,size(area_list,1));
         tc_sub_base = cell(length(offs),5,size(area_list,1));
         
-        if strcmp(areas, 'PM') ||  strcmp(areas,'AL') || strcmp(areas,'LM');
-            s = 1;
-        else
-            s = 0;
-        end
+%         if strcmp(areas, 'PM') ||  strcmp(areas,'AL') || strcmp(areas,'LM');
+%             s = 1;
+%         else
+%             s = 0;
+%         end
+        s=0;
         
         intervals = unique(cell2mat(input.cTargetOn)-cell2mat(input.cStimOn));
         for io = 1:length(intervals)
-            resp_win{io} = [(21+s:intervals(io):(intervals(io)*5)+21+s)' (24+s:intervals(io):(intervals(io)*5)+24+s)'];
-            base_win{io} = [(17+s:intervals(io):(intervals(io)*5)+17+s)' (19+s:intervals(io):(intervals(io)*5)+19+s)'];
+            resp_win{io} = [(23+s:intervals(io):(intervals(io)*5)+23+s)' (26+s:intervals(io):(intervals(io)*5)+26+s)'];
+            base_win{io} = [(19-io:intervals(io):(intervals(io)*5)+19-io)' (22-io:intervals(io):(intervals(io)*5)+22-io)'];
         end
         
         for ia = 1:size(area_list,1)  
@@ -253,16 +257,19 @@ if xObj == 16
                     resp_amp{io,ip,ia} = nanmean(nanmean(tc_sub(resp_win{io}(ip,1):resp_win{io}(ip,2),ind1,ia),1) - nanmean(tc_sub(base_win{io}(ip,1):base_win{io}(ip,2),ind1,ia),1),2);
                     resp_amp_norm{io,ip,ia} = resp_amp{io,ip,ia}/resp_amp{io,1,ia};
                     tc_sub_base{io,ip,ia} = nanmean(tc_sub(resp_win{io}(ip,1):resp_win{io}(ip,2),ind1,:),1)-nanmean(tc_sub(base_win{io}(ip,1):base_win{io}(ip,2),ind1,:),1);
-                    resp_v(io,ip,ia) = 100*(resp_amp_norm{io,ip,ia});
+                    resp_v(io,ip,ia) = (resp_amp_norm{io,ip,ia});
                 end
             end
+            % Find max avg dF/F for first pulse
+            max_p1(ia) = max(nanmean(tc_sub(20:30,:,ia),2),[],1);
+%             max_p1 = max(tc_sub(20:30,:,ia),[],1);
         end 
         disp('Saving fn_tc...')
-%         if exist(fn_tc,'file')
-%             save(fn_tc, 'resp_win', 'base_win', 'resp_amp_norm', 'resp_v', '-append')
-%         else
-        save(fn_tc, 'input', 'tc_sub', 'stimOff', 'resp_win', 'base_win', 'resp_amp_norm', 'resp_v')
-%         end
+        if exist(fn_tc,'file')
+        else
+            save(fn_tc, 'input', 'tc_sub', 'stimOff', 'resp_win', 'base_win', 'resp_amp_norm', 'resp_v')
+        end
+        save(fn_final, 'max_p1', 'resp_v', 'offs', 'stimOff')
         disp('Data saved in the proper directory for this mouse.')
 %% Plots
     disp('Plotting Figures...')
@@ -280,12 +287,16 @@ if xObj == 16
                 hold on
                 shadedErrorBar(1:size(tc_sub,1), nanmean(tc_sub(:,ind,ia),2), nanstd(tc_sub(:,ind,ia),[],2)./sqrt(length(ind)));
     %             plot(1:size(tc_sub,1), mean(tc_sub(:,ind,1),2), col_mat(id,:));
-                vline(base_win{io}(:,1),'--k')
-                vline(base_win{io}(:,2),'--k')
-                vline(resp_win{io}(:,1))
-                vline(resp_win{io}(:,2))
+                vline(base_win{io}(:,1)-1,'--k')
+                vline(base_win{io}(:,2)-1,'--k')
+                vline(resp_win{io}(:,1)-1)
+                vline(resp_win{io}(:,2)-1)
                 plot([0 135],[0 0], '--k')
                 xlim([0 135]);
+                ylabel('dF/F')
+                xlabel('Seconds')
+                set(gca,'XTick',0:15:150)
+                set(gca,'XTickLabel', {'', '0','','1','', '2','', '3','', '4',''})
                 title([num2str(dirs(id)) ' deg; ' num2str(offs(io)) ' ms off'])
              end
             start = start+length(dirs);
@@ -346,9 +357,9 @@ if xObj == 16
         for io = 1:2
             plot(resp_v(io,:,ia), 'LineWidth', 3, 'Color', col_mat(io,:))
         end
-        ylim([0 100])
+        ylim([0 1])
         xlim([0 6])
-        title([mouse ' - ' date ' - ' areas ' - Response Magnitude - Black: 250ms; Blue: 500ms']);
+        title([mouse ' - ' date ' - ' area_list(ia,:) ' - Response Magnitude - Black: 250ms; Blue: 500ms']);
         xlabel('Pulse Number')
         ylabel('Normalized Percent Magnitude')
         hold off

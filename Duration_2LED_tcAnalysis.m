@@ -50,17 +50,28 @@ for iexp = a:aa
     disp(opening_msg)
     disp('Note: Delete the "_exptData.mat" and "_maskData.mat" files for this experiment if you would like to select new ROIs.');
     disp('Type "return" or press [^] if this information is correct and you would like to proceed...');
-    keyboard
+    if e~=0
+        keyboard
+    end
     nROI = size(area_list,1);
     col_mat = char('k', 'b');
 
     fn_base = fullfile(anal_root, [date '_' mouse]);
+    fn_outbase = fullfile(anal_root, 'DU5');
     fn_output_home = fullfile(output_root, [date '_' mouse '_' areas]);
     fn_output = fullfile(fn_output_home, [date '_' mouse '_' expt_name '_' areas]);
+    fn_mworks = fullfile('\\CRASH.dhe.duke.edu\data\home\andrew\Behavior\Data', ['data-' mouse '-' date '-' time_mat '.mat']);
     fn_img = fullfile(fn_base, [date '_' mouse '_' expt_name '_' areas '_imageData.mat']);
     fn_tc = fullfile(fn_base, [date '_' mouse '_' expt_name '_' areas '_exptData.mat']);
     fn_mask = fullfile(fn_base, [date '_' mouse '_' expt_name '_' areas '_maskData.mat']);
-    fn_mworks = fullfile('\\CRASH.dhe.duke.edu\data\home\andrew\Behavior\Data', ['data-' mouse '-' date '-' time_mat '.mat']);
+    fn_final = fullfile(fn_outbase, [date '_' mouse '_' expt_name '_' areas '_final.mat']);
+    fn_img1 = fullfile(data_root, [date '_' mouse], [date '_' mouse '_' expt_name '_' num2str(xObj) '_1']);
+    cd(fn_base)
+    if exist(fullfile(fn_base, [date '_' mouse '_' expt_name '_' num2str(xObj) '_maskData.mat']),'file')
+        movefile([date '_' mouse '_' expt_name '_' num2str(xObj) '_maskData.mat'],[date '_' mouse '_' expt_name '_' areas '_maskData.mat']);
+        movefile([date '_' mouse '_' expt_name '_' num2str(xObj) '_exptData.mat'],[date '_' mouse '_' expt_name '_' areas '_exptData.mat']);
+    end
+    cd(anal_root)
 %% Check if Proper Directories Exist for Mouse and Experiment
     disp('Checking for previously saved files...')
     if isdir(fn_base)
@@ -95,8 +106,15 @@ for iexp = a:aa
             disp('Initiating new interpolation process.')
             disp('Reading image files...')
             data =[];
-            for irun = 1:nrun;
-                fn = fullfile(data_root, [date '_' mouse], [date '_' mouse '_' expt_name '_' areas '_' num2str(irun)], [date '_' mouse '_' expt_name '_' areas '_' num2str(irun) '_MMStack.ome.tif']);
+            for irun = 1:nrun; 
+                if isdir(fn_img1)
+                    img_str = [date '_' mouse '_' expt_name '_' num2str(xObj) '_' num2str(irun)];
+                    disp('File found with "Obj" naming.')
+                else
+                    img_str = [date '_' mouse '_' expt_name '_' areas '_' num2str(irun)];
+                    disp('File found with "Areas" naming.')
+                end
+                fn = fullfile(data_root, [date '_' mouse], img_str, [img_str '_MMStack.ome.tif']);
                 data_temp = readtiff(fn);
                 data = cat(3,data, data_temp);
                 clear data_temp
@@ -179,38 +197,74 @@ for iexp = a:aa
         tc_sub = reshape(stackGetTimeCourses(reshape(bdata_trials_gsub,[sz(1) sz(2) (preframes+postframes)*ntrials]),mask_cell), [(preframes+postframes) ntrials size(area_list,1)]);
 %         tc_blue = reshape(stackGetTimeCourses(reshape(bdata_trials_dFoverF,[sz(1) sz(2) (preframes+postframes)*ntrials]),mask_cell), [(preframes+postframes) ntrials size(area_list,1)]);
 %         tc_green = reshape(stackGetTimeCourses(reshape(gdata_trials_dFoverF,[sz(1) sz(2) (preframes+postframes)*ntrials]),mask_cell), [(preframes+postframes) ntrials size(area_list,1)]);      
+    end        
         tc_trans_resp = cell(length(ons),size(area_list,1));
         trans_resp = cell(length(ons),size(area_list,1));
         tc_sust_resp = cell(length(ons),size(area_list,1));
-        sust_resp = cell(length(ons),size(area_list,1));
 %         tc_blue_base = cell(length(ons),size(area_list,1));
 %         tc_green_base = cell(length(ons),size(area_list,1));
+        % Combine frames for 2s and 4s duration where overlapping
+        i1=find(stimOn == 125); i2 = find(stimOn==2000); i4 = find(stimOn==4000); ib = sort(horzcat(i2,i4));
+        for ia=1:size(area_list,1)
+            tc_2000 = nanmean(tc_sub(1:93,ib,ia),2);
+            tc{1,1} = nanmean(tc_sub(:,i1,ia),2);
+            tc_2s(:,:,ia) = vertcat(tc_2000,nanmean(tc_sub(94:end,i2,ia),2));
+            tc{1,2} = nanstd(tc_sub(:,i1,ia),[],2)./sqrt(length(i1));
+            tc{2,2} = nanstd(tc_sub(:,i2,ia),[],2)./sqrt(length(i2));
+        end
+        
         
         intervals = unique(cell2mat(input.cStimOff)-cell2mat(input.cStimOn));
         
+        if length(intervals) > 3
+            intervals(2) = intervals(4);
+            intervals(3) = intervals(5);
+            intervals(4:5) = [];
+            ons(2) = ons(4);
+            ons(3) = ons(5);
+            ons(4:5) = [];
+        end
         for io = 1:length(intervals)
             base_win = 23:28;
             stim_on = 33;
             stim_off(io) = stim_on + intervals(io);
             %take peak for on response transient
-            trans_resp_win = 37:39;
-            sust_resp_win{io} = (20 + intervals(io) - 20):(20 + intervals(io));
+%             trans_resp_win = 37:39;
+            sust_resp_win{io} = (30 + intervals(io) - 20):(30 + intervals(io));
             off_resp_win{io} = (35 + intervals(io)):(40 + intervals(io));
         end
+        clear sust_trans_ratio
         for ia = 1:size(area_list,1)
             for io = 1:length(ons)
                 ind1 = find(stimOn == ons(io));
-                if io > 1
+                if io == 1
+                    % Find max avg dF/F for first pulse
+                    max_p1(ia) = max(mean(tc_sub(35:45,stimOn == ons(io),ia),2));
+                elseif io > 1
+                    ind = intersect(ind1, find(stimOn == ons(io)));
+                    mean_tc = nanmean(tc_sub(:,ind1,ia),2);
+                    [m, frame] = max(mean_tc(37:47));
+                    trans_resp_win = frame+36:frame+38;
+                    if io==2
+                    tc_trans_resp{io} = nanmean(tc_2s(trans_resp_win,:,ia),1);
+                    tc_sust_resp{io} = nanmean(tc_2s(sust_resp_win{io},:,ia));
+                    sust_trans_ratio(io-1,ia) = tc_sust_resp{io}./tc_trans_resp{io};
+                    else
                     tc_trans_resp{io} = nanmean(nanmean(tc_sub(trans_resp_win,ind1,ia),2));%-nanmean(tc_sub(base_win,ind1,ia),1);
                     tc_sust_resp{io} = nanmean(nanmean(tc_sub(sust_resp_win{io},ind1,ia)));
-                    %sust_resp{io} = nanmean(tc_sust_resp{io});
-                    sust_trans_ratio(io-1) = tc_sust_resp{io}./tc_trans_resp{io};
+                    sust_trans_ratio(io-1,ia) = tc_sust_resp{io}./tc_trans_resp{io};
+                    end
                 end
             end
-        end     
-        save(fn_tc, 'tc_sub', 'ons', 'stimOn', 'stim_on', 'stim_off', 'sust_resp_win', 'off_resp_win', 'base_win', 'tc_trans_resp', 'tc_sust_resp', 'sust_trans_ratio')
+        end
+        disp('Saving data...')
+        if exist(fn_tc,'file')
+        else
+            save(fn_tc, 'input', 'tc_sub', 'ons', 'stimOn', 'stim_on', 'stim_off', 'sust_resp_win', 'trans_resp_win', 'off_resp_win', 'base_win', 'tc_trans_resp', 'tc_sust_resp', 'sust_trans_ratio')
+        end        
+        save(fn_final, 'max_p1', 'sust_trans_ratio', 'stimOn', 'ons')
         disp('Data saved in the proper directory for this mouse.')
-    end
+ 
     
 %     blue_base_F = reshape(stackGetTimeCourses(reshape(bdata_trials_F,[sz(1) sz(2) ntrials]),mask_cell), [ntrials size(area_list,1)]);
 %     figure; plot(blue_base_F)
@@ -223,52 +277,54 @@ for iexp = a:aa
     [n, n2] = subplotn(size(ons,2));
     for ia = 1:size(area_list,1)  
         f = figure; set(f, 'Position', [270 195 1500 1150]);
-        start=0;
         max_lum = 1.5 * max(nanmean(tc_sub(:,:,ia)));
         for io = 1:length(ons)
-            ind1 = find(stimOn == ons(io));
-            for id = 1:length(ons)
-                ind = intersect(ind1, find(stimOn == ons(id)));
-                indn(id) = length(ind);
-                base_temp = base_win;
-                resp_temp = trans_resp_win(id);
-                subplot(n,n2,id)
+            ind = find(stimOn == ons(io));
+                indn(io) = length(ind);
+                subplot(n,n2,io)
                 hold on
+                yLim = [-0.02 0.06];
                 shadedErrorBar(1:size(tc_sub,1), nanmean(tc_sub(:,ind,ia),2), nanstd(tc_sub(:,ind,ia),[],2)./sqrt(length(ind)));
 %                plot(1:size(tc_sub,1), mean(tc_sub(:,ind,1),2), col_mat(id,:));
                 %vline(base_temp(:,1),'--k')
                 %vline(base_temp(:,end),'--k')
-                vline(stim_on, '--k')
-                vline(stim_off(id), '--b')
                 plot([0 270],[0 0], '--k')
+                plot([stim_on stim_on], yLim, '--k')
+                plot([stim_off(io) stim_off(io)], yLim, '--r')
+                if io>1
+                plot([trans_resp_win(1) trans_resp_win(1)],yLim,'--g')                
+                plot([trans_resp_win(end) trans_resp_win(end)],yLim,'--g')
+                plot([sust_resp_win{io}(1) sust_resp_win{io}(1)],yLim,'--b')
+                plot([sust_resp_win{io}(end) sust_resp_win{io}(end)],yLim,'--b')
+                end
                 set(gca,'XTick',0:30:270)
-                %set(gca,'XTickLabel', {'-1', '0', '1', '2', '3', '4', '5', '6', '7', '8'})
-                title([num2str(ons(id)) '  ms on'])
-                ylim([-0.02 0.08])
+                set(gca,'XTickLabel', {'-1', '0', '1', '2', '3', '4', '5', '6', '7', '8'})
+                title([num2str(ons(io)) '  ms on'])
+                ylabel('dF/F')
+                xlabel('Seconds')
+                ylim(yLim)
                 xlim([0 270])
                 hold off
-            end
-            start = start+length(ons);
         end
-        suptitle([mouse ' - ' date ' - Area ' area_list(ia,:)])
+        suptitle([mouse ' - ' date ' - ' area_list(ia,:)])
         savefig(fullfile(fn_output,[date '_' mouse '_' expt_name '_' area_list(ia,:) '_tc.fig']));
         print(fullfile(fn_output, [date '_' mouse '_' expt_name '_' area_list(ia,:) 'tc.png']), '-dpng');
     end
+
     for ia = 1:size(area_list,1)  
         figure;
         hold on
-        sust_trans_percent = 100 * sust_trans_ratio;
-        bar(sust_trans_percent)
+        sust_trans_percent(:,ia) = 100 * sust_trans_ratio(:,ia);
+        bar(sust_trans_percent(:,ia))
         ylim([0 100])
         set(gca,'XTick',1:2)
         set(gca,'XTickLabel', {'2000ms', '4000ms'})
-        title('Sustained Response / Transient')
+        title([mouse ' - ' date ' - ' area_list(ia,:) ' - Sustained Response / Transient'])
         xlabel('Stimulus Duration')
         ylabel('Response Magnitude (%)')
         hold off
         savefig(fullfile(fn_output,[date '_' mouse '_' expt_name '_' area_list(ia,:) '_resp_ratio.fig']));
         print(fullfile(fn_output, [date '_' mouse '_' expt_name '_' area_list(ia,:) 'resp_ratio.png']), '-dpng');
-    
     end
     
 %     % Plot BLUE dF/F by Visual Area for Each Stimulus Condition
@@ -337,47 +393,6 @@ for iexp = a:aa
 %         savefig(fullfile(fn_output,[date '_' mouse '_' expt_name '_' num2str(xObj) '_' area_list(ia,:) '_green.fig']));
 %         print(fullfile(fn_output, [date '_' mouse '_' expt_name '_' num2str(xObj) '_' area_list(ia,:) '_Green.png']), '-dpng');
 %     end
-%     % Plot Blue/Black Overlay, 250/500ms
-%     [n, n2] = subplotn(length(ons));
-%     for ia = 1:size(area_list,1)  
-%         f = figure; set(f, 'Position', [270 195 1500 1150]);
-%         for io = 1:length(ons)
-%             ind1 = find(stimOn == ons(io));
-%             base_temp = base_win{io};
-%             resp_temp = resp_win{io};
-%             subplot(n,n2,io)
-%             for id = 1:length(ons)
-%                 ind = intersect(ind1, find(stimOn == ons(id)));
-%                 indn(id,io) = length(ind);
-%                 shadedErrorBar(1:size(tc_sub,1), nanmean(tc_sub(:,ind,ia),2), nanstd(tc_sub(:,ind,ia),[],2)./sqrt(length(ind)), col_mat(id,:));
-%                 hold on;
-%                 title([num2str(ons(io)) ' ms off'])
-%                 hold on
-%             end
-%         end
-%         suptitle([mouse ' ' date '- Area ' area_list(ia,:) '; Black: 45 deg; Blue: 90 deg'])   
-%         print(fullfile(fn_output, [date '_' mouse '_' expt_name '_' num2str(xObj) '_' area_list(ia,:) '_overlay.png']), '-dpng');
-%     end
-%     % Plot Change in Response for Each Degree Change
-%     f = figure; set(f, 'Position', [270 195 1500 1150]);
-%     [n,n2] = subplotn(size(area_list,1));
-%     for ia = 1:size(area_list,1)
-%         subplot(n,n2,ia)
-%         for io = 1:length(ons)
-%             temp = bsxfun(@rdivide, tc_sub_base{io,5,ia}, nanmean(tc_sub_base{io,1,ia},2));
-%             shadedErrorBar(dirs,repmat(nanmean(temp(:,:,ia),2), [1, length(dirs)]),repmat(nanstd(temp(:,:,ia),[],2)./sqrt(size(temp,2)), [1, length(dirs)]), col_mat(io,:));
-%             hold on
-%             for id = 1:length(dirs)
-%                 temp = bsxfun(@rdivide, tc_sub_dir{io,id,6,ia}, nanmean(tc_sub_base{io,1,ia},2));
-%                 errorbar(dirs(id),nanmean(temp(:,:,ia),2),nanstd(temp(:,:,ia),[],2)./sqrt(size(temp,2)), ['-o' col_mat(io,:)])
-%                 hold on
-%             end
-%         end
-%         title(['Area ' area_list(ia,:)])
-%         ylim([0 2])
-%     end
-%     suptitle([mouse ' ' date '- Black: 250ms; Blue: 500ms'])
-%     print(fullfile(fn_output, [date '_' mouse '_' expt_name '_' num2str(xObj) '_change_resp.png']), '-dpng');
     disp('Figures saved in the proper directory for this mouse.')
 end
 %%    
