@@ -1,21 +1,38 @@
+%% Readme
+% Written by Benjamin Gincley, May 2018.
+% This program is a script designed to take raw Average Pixel Intensity 
+% information from the Cyteseer Primary Stats excel file export, and
+% perform a series of computations to remove optical bleedover and
+% fluorescent decay to extract contraction rate, peak to peak interval, 
+% CTD90, and determine if peaks are evidence of optical capture.
+
+% Modify the "metadata" variable to match the leader information in data 
+% cell on the Primary Stats export file from Cyteseer to remove this string 
+% from the cell and allow numerical complication.
+% Adjust variables in first section to match experiment conditions for that
+% specific run (e.g. 4Hz stim frequency -- stimfreq = 4;
 %% Initialize, Load
 clearvars; close all;
 tic;
 % Excel Info
-run = '0'; date = '0601';
+run = '2'; date = '0626';
 name = [date '_optical_' run];
-metadata = '{300;0;16.64|';
-cells = 'CH1048:CH1068';
+% Metadata is copied from cell in excel file that contains normalized or
+% raw API string of values. Copy-paste if different from below. General
+% format is {#frames;0;frameduration...|datavalues}
+%metadata = '{300;0;16.64|';
+metadata = '{300;0;16.666666666666668;Time;T;msec;F(t);F;|';
+cells = 'G27:G100';
 % Experiment Info
 dye = 'cal590';
 stimfreq = 3; nstim = 9;
-pulseduration = 10;
-ncontrolwells = 3; framerate = 60; frameduration = 16.64;
+pulseduration = 20;
+ncontrolwells = 2; framerate = 60; frameduration = 16.64;
 startframe = 60; endframe = 240; totalframes = 300; 
 stim_interval=framerate/stimfreq;
 if pulseduration<16
     x=1:totalframes-2; interpsize=0.4; 
-elseif pulseduration>16 & pulseduration<32
+elseif pulseduration>16 && pulseduration<32
     x=1:totalframes-3; interpsize=0.3;
 end
 x2=1:totalframes; t=frameduration.*x2;
@@ -53,24 +70,24 @@ for k=1:nwells
     minval = min(rawAPI(k,:),[],2); %Find minimum value on timecourse
     rawAPI(k,:)=rawAPI(k,:)-minval; %Normalize minimum value to 0 to maintain proper math later on
 end
-figure(); plot(x2,rawAPI);
+figure(2); plot(x2,rawAPI);
 %% Plot Cleaned Raw API
-for z=1:nwells
-    figure(z+1)
-    plot(x2,rawAPI(z,:))
-end
+% for z=1:nwells
+%     figure(z+2)
+%     plot(x2,rawAPI(z,:))
+% end
 %% Analysis for Stimulated Period
 stimframes = (startframe:endframe-1); % Frame range during stimulation
 peak=zeros(nstim,stim_interval); %Individual peak traces
 stim_period1=startframe:endframe-1; spont_period1=1:startframe-1; spont_period2=endframe:totalframes;
 if strcmp(dye,'cal590') % determine peak thresholding based on dye
-    a=45;b=155;
+    a=33;b=100;
 else
     a=45;b=125;
 end
 for z=1:nwells
     stimperiod = rawAPI(z,stimframes); % RawAPI trace during stimulated period
-    % Break apart individual peak traces per stimulus
+% Break apart individual peak traces per stimulus
     for n=1:nstim
         peak(n,:) = stimperiod(stim_interval*(n-1)+1:stim_interval*n); % Isolates peak traces
         if peak(n,1)>0 % Normalizes peak start values to 0
@@ -80,18 +97,18 @@ for z=1:nwells
         end
     end
 %     figure();plot(1:size(peak,2),peak);
-    % Upsample data for greater time resolution
+% Upsample data for greater time resolution
     upsampling_rate = 100;
     upsampled_peak=zeros(nstim,((stim_interval-1)*upsampling_rate)+1);
     for k=1:nstim
         upsampled_peak(k,:)=interp1(1:stim_interval,peak(k,:),1:1/upsampling_rate:stim_interval,'makima');
     end
     
-%     figure(); plot(1:size(upsampled_peak,2),upsampled_peak); title(['Peaks ' num2str(z)]); xlabel('Frames');
+    figure(); plot(1:size(upsampled_peak,2),upsampled_peak); title(['Peaks ' num2str(z)]); xlabel('Frames');
     
     [peak_height,peak_height_index] = max(upsampled_peak,[],2); % Mark peak value and frame index
     CTD90_val = 0.1.*peak_height; % Define CTD90
-    % Calculate frame of CTD90 per peak trace
+% Calculate frame of CTD90 per peak trace
     CTD90_frame=zeros(1,nstim);
     for n=1:nstim
         I=find(upsampled_peak(n,:)<=CTD90_val(n,1)); % Find values at or below CTD90 value threshold
@@ -107,25 +124,27 @@ for z=1:nwells
     captured_peak(z,:) = (peak_height_index/upsampling_rate>a/frameduration & peak_height_index/upsampling_rate<b/frameduration);
     percent_captured(z,:) = sum(captured_peak(z,:))/nstim;
 
-    % find location of peaks during stim period, calc peak to peak interval
+% Find location of peaks during stim period, calc peak to peak interval
     [stim_peaks,loc] = findpeaks(rawAPI(z,stim_period1),'MinPeakDistance',stim_interval*.75,'MinPeakHeight',0.3*max(peak_height)); 
     npeaks(z,:)=size(stim_peaks,2);
     stim_peak_loc=loc+startframe-1; 
     stim_peaktopeak_interval=diff(stim_peak_loc,[],2);
     avg_peaktopeak_stim=mean(stim_peaktopeak_interval,2);
-    % find location of peaks during spontaneous periods
-    [peaks1,loc1] = findpeaks(rawAPI(z,spont_period1),'MinPeakDistance',framerate/5,'MinPeakHeight',0.3*max(peak_height)); 
+% Find location of peaks during spontaneous periods
+    [peaks1,loc1] = findpeaks(rawAPI(z,spont_period1),'MinPeakDistance',framerate/5,'MinPeakHeight',max(0.3*max(peak_height),1)); 
     npeaks1(z,:)=size(peaks1,2);
-    [peaks2,loc2] = findpeaks(rawAPI(z,spont_period2),'MinPeakDistance',framerate/5,'MinPeakHeight',0.3*max(peak_height)); 
+    [peaks2,loc2] = findpeaks(rawAPI(z,spont_period2),'MinPeakDistance',framerate/5,'MinPeakHeight',max(0.3*max(peak_height),1)); 
     npeaks2(z,:)=size(peaks2,2);
     loc2=loc2+endframe-1;
+    if isempty(loc1)
+        loc1=0;
+    end
     if isempty(loc2)
         loc2=0;
     end
     peaktopeak_startstim=stim_peak_loc(1)-loc1(end);
     peaktopeak_endstim=loc2(1)-stim_peak_loc(end);
-    % Calculate change in beat rate during stim period using peak to peak
-    % interval
+% Calculate change in beat rate during stim period using peak to peak interval
     tolerance = 0.15 * avg_peaktopeak_stim;
     d1 = abs(peaktopeak_startstim-avg_peaktopeak_stim);
     d2 = abs(peaktopeak_endstim-avg_peaktopeak_stim);
@@ -146,16 +165,17 @@ spont_rate2 = npeaks2/(length(spont_period2)/framerate);
 
 percent_plate_captured=sum(well_captured)/(nwells-ncontrolwells);
 percent_beatrate_changed=sum(beatrate_changed)/(nwells-ncontrolwells);
+percent_cap_change=cat(2,percent_plate_captured,percent_beatrate_changed);
 %% Export to Excel
-% outfile=[date '_analyzed'];
-% [null,wellid] = xlsread(name,'B1048:B1068'); clear null; wellid=string(cell2mat(wellid));
-% 
-% output(:,2) = wellid; output(:,3)=well_captured; output(:,4)=percent_captured; output(:,5)=beatrate_changed;
-% output(:,6) = CTD90_mean; output(:,7) = CTD90_std; output(:,8) = spont_rate1; output(:,9) = spont_rate2; 
-% output(1,1) = percent_plate_captured; 
-% labels = ["% Plate Captured","WellID","WellCaptured","% Captured Peaks","Changed Rate","CTD90 Mean","CTD90 StDev","Pre Spont Rate","Post Spont Rate"];
-% 
-% xlswrite(outfile,labels,['Sheet' run],'A1');
-% xlswrite(outfile,output,['Sheet' run],'A2');
+outfile=[date '_analyzed'];
+[null,wellid] = xlsread(name,'B27:B100'); clear null; wellid=string(cell2mat(wellid));
+
+output(:,2) = wellid; output(:,3)=well_captured; output(:,4)=percent_captured; output(:,5)=beatrate_changed;
+output(:,6) = CTD90_mean; output(:,7) = CTD90_std; output(:,8) = spont_rate1; output(:,9) = spont_rate2; 
+output(1:2,1) = percent_cap_change; 
+labels = ["% Plate Captured","WellID","WellCaptured","% Captured Peaks","Changed Rate","CTD90 Mean","CTD90 StDev","Pre Spont Rate","Post Spont Rate"];
+
+xlswrite(outfile,labels,['Sheet' run],'A1');
+xlswrite(outfile,output,['Sheet' run],'A2');
 %%
 toc
